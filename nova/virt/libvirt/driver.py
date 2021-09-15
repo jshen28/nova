@@ -703,7 +703,8 @@ class LibvirtDriver(driver.ComputeDriver):
                  {'enabled': enabled, 'reason': reason})
         self._set_host_enabled(enabled, reason)
 
-    def init_host(self, host):
+    def init_host(self, host, allocs=None, rps=None):
+
         self._host.initialize()
 
         self._update_host_specific_capabilities()
@@ -797,7 +798,7 @@ class LibvirtDriver(driver.ComputeDriver):
 
         # TODO(sbauza): Remove this code once mediated devices are persisted
         # across reboots.
-        self._recreate_assigned_mediated_devices()
+        self._recreate_assigned_mediated_devices(allocs=allocs, rps=rps)
 
         self._check_cpu_compatibility()
 
@@ -966,34 +967,37 @@ class LibvirtDriver(driver.ComputeDriver):
         # See https://bugzilla.redhat.com/show_bug.cgi?id=1376907 for ref.
         return os.path.exists('/sys/bus/mdev/devices/{0}'.format(uuid))
 
-    def _recreate_assigned_mediated_devices(self):
+    def _recreate_assigned_mediated_devices(self, allocs=None, rps=None):
         """Recreate assigned mdevs that could have disappeared if we reboot
         the host.
         """
         # NOTE(sbauza): This method just calls sysfs to recreate mediated
         # devices by looking up existing guest XMLs and doesn't use
         # the Placement API so it works with or without a vGPU reshape.
+        allocs = allocs or {}
+        rps = rps or {}
         mdevs = self._get_all_assigned_mediated_devices()
         for (mdev_uuid, instance_uuid) in mdevs.items():
             if not self._is_existing_mdev(mdev_uuid):
-                dev_name = libvirt_utils.mdev_uuid2name(mdev_uuid)
-                dev_info = self._get_mediated_device_information(dev_name)
-                parent = dev_info['parent']
-                parent_type = self._get_vgpu_type_per_pgpu(parent)
-                if dev_info['type'] != parent_type:
-                    # NOTE(sbauza): The mdev was created by using a different
-                    # vGPU type. We can't recreate the mdev until the operator
-                    # modifies the configuration.
-                    parent = "{}:{}:{}.{}".format(*parent[4:].split('_'))
-                    msg = ("The instance UUID %(inst)s uses a mediated device "
-                           "type %(type)s that is no longer supported by the "
-                           "parent PCI device, %(parent)s. Please correct "
-                           "the configuration accordingly." %
-                           {'inst': instance_uuid,
-                            'parent': parent,
-                            'type': dev_info['type']})
-                    raise exception.InvalidLibvirtMdevConfig(reason=msg)
-                self._create_new_mediated_device(parent, uuid=mdev_uuid)
+                if instance_uuid in allocs:
+                    vgpu_allocs = self._vgpu_allocations(allocs[instance_uuid])
+                    rp_id, _ = next(iter(vgpu_allocs.items()))
+                    rp = rps[rp_id]
+                    root_name = rps.get(rp['parent_provider_uuid'], {})\
+                        .get('name')
+                    # before reshaping, it is possible that pci resource
+                    # provider is not created yet
+                    if root_name:
+                        parent = rp['name'][len(root_name) + 1:]
+                        self._create_new_mediated_device(parent,
+                                                         uuid=mdev_uuid)
+                    else:
+                        LOG.warning("resoruce provider %s is not found",
+                                    rp['parent_provider_uuid'])
+                else:
+                    LOG.warning("instance %s allocates vgpu device but"
+                                "does not have allocations in placement",
+                                instance_uuid)
 
     def _check_file_backed_memory_support(self):
         if not CONF.libvirt.file_backed_memory:

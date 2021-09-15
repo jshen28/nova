@@ -153,9 +153,9 @@ class FakeDriver(driver.ComputeDriver):
         self._interfaces = {}
         self.active_migrations = {}
         self._host = None
-        self._nodes = None
+        self._nodes = []
 
-    def init_host(self, host):
+    def init_host(self, host, allocs=None, rps=None):
         self._host = host
         # NOTE(gibi): this is unnecessary complex and fragile but this is
         # how many current functional sample tests expect the node name.

@@ -1413,8 +1413,40 @@ class ComputeManager(manager.Manager):
                     'number of disk devices.')
             raise exception.InvalidConfiguration(msg)
 
-        self.driver.init_host(host=self.host)
+        consumer_dict = {}
+        provider_dict = {}
         context = nova.context.get_admin_context()
+        nodes_by_uuid = self._get_nodes(context)
+
+        try:
+            for node_uuid in nodes_by_uuid:
+                _node_allocs = \
+                    self.reportclient.get_allocations_for_resource_provider(
+                        context, node_uuid).allocations
+                for consumer in _node_allocs:
+                    consumer_dict[consumer] = \
+                        self.reportclient.get_allocations_for_consumer(
+                            context, consumer)
+            for consumer_id in consumer_dict:
+                for rp_id in consumer_dict[consumer_id]:
+                    if rp_id not in provider_dict:
+                        provider_dict[rp_id] = \
+                            self.reportclient._get_resource_provider(
+                                context, rp_id)
+        except exception.ResourceProviderAllocationRetrievalFailed:
+            # if a compute node starts the first time
+            # it is possible that it has a node_uuid but
+            # does not get a resource provider uuid
+            LOG.debug("Failed to find a node in placement")
+
+        try:
+            self.driver.init_host(self.host, allocs=consumer_dict,
+                                  rps=provider_dict)
+        except TypeError:
+            LOG.warning("Driver does not allow new arguments, please"
+                        " consider updating. Fall back to old arguments")
+            self.driver.init_host(self.host)
+
         instances = objects.InstanceList.get_by_host(
             context, self.host,
             expected_attrs=['info_cache', 'metadata', 'numa_topology'])

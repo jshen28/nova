@@ -94,7 +94,7 @@ class ZVMDriver(driver.ComputeDriver):
                     "instance_name_template.") % CONF.instance_name_template
             raise exception.ZVMDriverException(error=msg)
 
-    def init_host(self, host):
+    def init_host(self, host, allocs=None, rps=None):
         pass
 
     def list_instances(self):

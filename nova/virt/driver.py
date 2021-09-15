@@ -218,7 +218,7 @@ class ComputeDriver(object):
         self.virtapi = virtapi
         self._compute_event_callback = None
 
-    def init_host(self, host):
+    def init_host(self, host, allocs=None, rps=None):
         """Initialize anything that is necessary for the driver to function,
         including catching up with currently running VM's on the given host.
         """

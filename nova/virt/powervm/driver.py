@@ -98,7 +98,7 @@ class PowerVMDriver(driver.ComputeDriver):
         }
         super(PowerVMDriver, self).__init__(virtapi)
 
-    def init_host(self, host):
+    def init_host(self, host, allocs=None, rps=None):
         """Initialize anything that is necessary for the driver to function.
 
         Includes catching up with currently running VMs on the given host.

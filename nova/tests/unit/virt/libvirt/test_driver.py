@@ -25972,14 +25972,6 @@ class LibvirtDriverTestCase(test.NoDBTestCase, TraitsComparisonMixin):
             self.assertIn('/sys/bus/mdev/devices/', path)
             return True if uuids.mdev1 in path else False
 
-        exists.side_effect = _exists
-        mock_get_mdev_info.side_effect = [
-            {"dev_id": "mdev_fake",
-             "uuid": uuids.mdev2,
-             "parent": "pci_0000_06_00_0",
-             "type": "nvidia-11",
-             "iommu_group": 12
-             }]
         get_mdev_capable_devs.return_value = [
             {"dev_id": "pci_0000_06_00_0",
              "vendor_id": 0x10de,
@@ -25989,36 +25981,47 @@ class LibvirtDriverTestCase(test.NoDBTestCase, TraitsComparisonMixin):
                        }
              }]
 
+        fake_allocs = {
+            uuids.inst1: {
+                "rp1": {
+                    "resources": {
+                        "VGPU": 1
+                    }
+                }
+            },
+            uuids.inst2: {
+                "rp2": {
+                    "resources": {
+                        "VGPU": 1
+                    }
+                }
+            }
+        }
+
+        fake_rps = {
+            "rp_root": {
+                "uuid": "rp_root",
+                "name": "rp_root"
+            },
+            "rp1": {
+                "uuid": "rp1",
+                "name": "rp_root_pci_0000_07_00_0",
+                "parent_provider_uuid": "rp_root"
+            },
+            "rp2": {
+                "uuid": "rp2",
+                "name": "rp_root_pci_0000_06_00_0",
+                "parent_provider_uuid": "rp_root"
+            }
+        }
+
+        exists.side_effect = _exists
+
         drvr = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), True)
-        drvr.init_host(host='foo')
+        drvr.init_host(host='foo', allocs=fake_allocs, rps=fake_rps)
         # Only mdev2 will be recreated as mdev1 already exists.
         privsep_create_mdev.assert_called_once_with(
             "0000:06:00.0", 'nvidia-11', uuid=uuids.mdev2)
-
-    @mock.patch('nova.virt.libvirt.driver.LibvirtDriver.'
-                '_get_mediated_device_information')
-    @mock.patch.object(os.path, 'exists')
-    @mock.patch.object(libvirt_driver.LibvirtDriver,
-                       '_get_all_assigned_mediated_devices')
-    def test_recreate_mediated_device_on_init_host_with_wrong_config(
-            self, get_all_assigned_mdevs, exists, mock_get_mdev_info):
-        self.flags(enabled_mdev_types=['nvidia-11', 'nvidia-12'],
-                   group='devices')
-        get_all_assigned_mdevs.return_value = {uuids.mdev1: uuids.inst1}
-        # We pretend this mdev doesn't exist hence it needs recreation
-        exists.return_value = False
-        mock_get_mdev_info.side_effect = [
-            {"dev_id": "mdev_fake",
-             "uuid": uuids.mdev1,
-             "parent": "pci_0000_06_00_0",
-             "type": "nvidia-99",
-             "iommu_group": 12
-             }]
-        drvr = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), True)
-        # mdev1 was originally created for nvidia-99 but the operator messed up
-        # the configuration by removing this type, we want to hardstop.
-        self.assertRaises(exception.InvalidLibvirtMdevConfig,
-                          drvr.init_host, host='foo')
 
     @mock.patch.object(libvirt_guest.Guest, 'detach_device')
     def _test_detach_mediated_devices(self, side_effect, detach_device):

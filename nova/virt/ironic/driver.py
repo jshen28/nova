@@ -553,7 +553,7 @@ class IronicDriver(virt_driver.ComputeDriver):
 
         _log_ironic_polling(message, node, instance)
 
-    def init_host(self, host):
+    def init_host(self, host, allocs=None, rps=None):
         """Initialize anything that is necessary for the driver to function.
 
         :param host: the hostname of the compute host.

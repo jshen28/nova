@@ -144,7 +144,7 @@ class HyperVDriver(driver.ComputeDriver):
                         'has been deprecated In Queens, and will be removed '
                         'in Rocky.')
 
-    def init_host(self, host):
+    def init_host(self, host, allocs=None, rps=None):
         self._serialconsoleops.start_console_handlers()
         event_handler = eventhandler.InstanceEventHandler(
             state_change_callback=self.emit_event)

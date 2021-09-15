@@ -103,6 +103,13 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
                 }
             }
         }
+        self.stub_out("nova.scheduler.client.report."
+                      "SchedulerReportClient."
+                      "get_allocations_for_resource_provider",
+                      mock.MagicMock())
+        self.stub_out("nova.scheduler.client.report."
+                      "SchedulerReportClient._get_resource_provider",
+                      mock.MagicMock())
 
     @mock.patch.object(manager.ComputeManager, '_get_power_state')
     @mock.patch.object(manager.ComputeManager, '_sync_instance_power_state')
@@ -900,7 +907,9 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
                  mock.call(self.context, inst_list[1]),
                  mock.call(self.context, inst_list[2])])
 
-            mock_init_host.assert_called_once_with(host=our_host)
+            mock_init_host.assert_called_once_with(our_host,
+                                                   allocs={},
+                                                   rps={})
             mock_host_get.assert_called_once_with(self.context, our_host,
                 expected_attrs=['info_cache', 'metadata', 'numa_topology'])
 
@@ -939,7 +948,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
         mock_error_interrupted.assert_called_once_with(
             test.MatchType(nova.context.RequestContext), set(),
             mock_get_nodes.return_value.keys())
-        mock_get_nodes.assert_called_once_with(
+        mock_get_nodes.assert_called_with(
             test.MatchType(nova.context.RequestContext))
 
     @mock.patch('nova.objects.InstanceList')
@@ -954,7 +963,8 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
 
         with mock.patch.object(self.compute, 'driver') as mock_driver:
             self.compute.init_host()
-            mock_driver.init_host.assert_called_once_with(host='fake-mini')
+            mock_driver.init_host.assert_called_once_with('fake-mini',
+                                                          allocs={}, rps={})
 
             self.compute.cleanup_host()
             # register_event_listener is called on startup (init_host) and
@@ -1047,7 +1057,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
             mock_remove_allocation.assert_called_once_with(
                 self.context, deleted_instance.uuid, uuids.our_node_uuid)
 
-        mock_init_host.assert_called_once_with(host=our_host)
+        mock_init_host.assert_called_once_with(our_host, allocs={}, rps={})
         mock_host_get.assert_called_once_with(self.context, our_host,
             expected_attrs=['info_cache', 'metadata', 'numa_topology'])
         mock_init_virt.assert_called_once_with()
@@ -1280,6 +1290,104 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase,
                 mock.call(self.context, uuids.cn2_uuid),
             ]
         )
+
+    @mock.patch.object(objects.InstanceList, 'get_by_host')
+    @mock.patch("nova.compute.manager.ComputeManager."
+                "_error_out_instances_whose_build_was_interrupted")
+    @mock.patch('nova.scheduler.client.report.SchedulerReportClient.'
+                'get_allocations_for_consumer')
+    @mock.patch('nova.scheduler.client.report.SchedulerReportClient.'
+                'get_allocations_for_resource_provider')
+    @mock.patch('nova.compute.manager.ComputeManager.'
+                '_destroy_evacuated_instances')
+    @mock.patch('nova.compute.manager.ComputeManager._init_instance')
+    @mock.patch('nova.compute.manager.ComputeManager._get_nodes')
+    @mock.patch('nova.scheduler.client.report.SchedulerReportClient.'
+                '_get_resource_provider')
+    def test_init_host_with_vgpu(
+            self, mock_get_rp, mock_get_nodes, mock__init_inst,
+            mock__destroy_eva, mock_get_allocs, mock_get_consum_allocs,
+            mock__error_out_inst, mock_get_by_host):
+
+        mock_get_nodes.return_value = {"node1": mock.Mock()}
+
+        allocations = {
+            uuids.active_instance: "fake-resources-active",
+        }
+
+        mock_get_consum_allocs.return_value = {
+            "rp1": {
+                "resources": {
+                    "VCPU": 2,
+                    "MEMORY_MB": 4096,
+                    "DISK_GB": 0
+                }
+            },
+            "rp1_pci_0000_01_00_0": {
+                "resources": {
+                    "VGPU": 1
+                }
+            }
+        }
+
+        mock_get_allocs.return_value = report.ProviderAllocInfo(
+            allocations=allocations)
+
+        mock_get_rp.side_effect = [
+            {
+                "uuid": "rp1",
+                "name": "rp1",
+                "root_provider_uuid": "rp1",
+                "parent_provider_uuid": "rp1"
+            },
+            {
+                "uuid": "rp1_pci_0000_01_00_0",
+                "name": "rp1_pci_0000_01_00_0",
+                "root_provider_uuid": "rp1",
+                "parent_provider_uuid": "rp1"
+            }
+        ]
+
+        expected_allos = {
+            uuids.active_instance: {
+                "rp1": {
+                    "resources": {
+                        "VCPU": 2,
+                        "MEMORY_MB": 4096,
+                        "DISK_GB": 0
+                    }
+                },
+                "rp1_pci_0000_01_00_0": {
+                    "resources": {
+                        "VGPU": 1
+                    }
+                }
+
+            }
+        }
+        expected_rps = {
+           "rp1": {
+               "uuid": "rp1",
+               "name": "rp1",
+               "root_provider_uuid": "rp1",
+               "parent_provider_uuid": "rp1"
+           },
+           "rp1_pci_0000_01_00_0": {
+               "uuid": "rp1_pci_0000_01_00_0",
+               "name": "rp1_pci_0000_01_00_0",
+               "root_provider_uuid": "rp1",
+               "parent_provider_uuid": "rp1"
+           }
+        }
+
+        with mock.patch.object(
+                self.compute.driver, "init_host") as mock_init_host:
+            self.compute.init_host()
+            mock_init_host.assert_called_once_with(
+                self.compute.host,
+                allocs=expected_allos,
+                rps=expected_rps
+            )
 
     def test_init_instance_with_binding_failed_vif_type(self):
         # this instance will plug a 'binding_failed' vif

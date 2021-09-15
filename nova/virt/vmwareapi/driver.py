@@ -192,7 +192,7 @@ class VMwareVCDriver(driver.ComputeDriver):
                 LOG.warning("datastore_regex is ignored when PBM is enabled")
                 self._datastore_regex = None
 
-    def init_host(self, host):
+    def init_host(self, host, allocs=None, rps=None):
         vim = self._session.vim
         if vim is None:
             self._session._create_session()
