@@ -10703,8 +10703,12 @@ class ComputeManager(manager.Manager):
                     if snapshot.get('status') != 'creating':
                         raise loopingcall.LoopingCallDone()
 
-                timer = loopingcall.FixedIntervalLoopingCall(_wait_snapshot)
-                timer.start(interval=0.5).wait()
+                timer = loopingcall.FixedIntervalWithTimeoutLoopingCall(
+                    _wait_snapshot)
+                # endlessly waiting for a snapshot ready is dangerous
+                # in that guest filesystem might be locked
+                timer.start(interval=0.5,
+                            timeout=CONF.timeout_before_unquiesce).wait()
 
     @messaging.expected_exceptions(exception.InstanceQuiesceNotSupported,
                                    exception.QemuGuestAgentNotEnabled,
@@ -10717,16 +10721,19 @@ class ComputeManager(manager.Manager):
         If snapshots' image mapping is provided, it waits until snapshots are
         completed before unqueiscing.
         """
-        context = context.elevated()
-        if mapping:
-            try:
-                self._wait_for_snapshots_completion(context, mapping)
-            except Exception as error:
-                LOG.exception("Exception while waiting completion of "
-                              "volume snapshots: %s",
-                              error, instance=instance)
         image_meta = objects.ImageMeta.from_instance(instance)
-        self.driver.unquiesce(context, instance, image_meta)
+        try:
+            context = context.elevated()
+            if mapping:
+                try:
+                    self._wait_for_snapshots_completion(context, mapping)
+                except Exception as error:
+                    LOG.exception("Exception while waiting completion of "
+                                  "volume snapshots: %s",
+                                  error, instance=instance)
+        finally:
+            # make sure unquiesce will be executed no matter what
+            self.driver.unquiesce(context, instance, image_meta)
 
     @periodic_task.periodic_task(spacing=CONF.instance_delete_interval)
     def _cleanup_expired_console_auth_tokens(self, context):

@@ -1320,7 +1320,11 @@ need to shut down cleanly.
 Possible values:
 
 * A positive integer or 0 (default value is 60).
-""")
+"""),
+    cfg.IntOpt('timeout_before_unquiesce',
+               default=60,
+               help="Timeout for waiting a snapshot ready to use before "
+                    "unquiescing an instance")
 ]
 
 running_deleted_opts = [
@@ -1456,7 +1460,7 @@ Possible values:
   default)
 * A string with a list of named database columns, for example ``%(id)d``
   or ``%(uuid)s`` or ``%(hostname)s``.
-"""),
+""")
 ]
 
 
