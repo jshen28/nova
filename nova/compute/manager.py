@@ -3761,13 +3761,19 @@ class ComputeManager(manager.Manager):
                     # status change to 'available' if we don't pre-create
                     # another empty attachment before deleting the old one.
                     attachment_id = None
-                    if bdm.attachment_id:
-                        attachment_id = self.volume_api.attachment_create(
-                            context, bdm['volume_id'], instance.uuid)['id']
-                    self._detach_volume(context, bdm, instance,
-                                        destroy_bdm=False)
-                    if attachment_id:
-                        bdm.attachment_id = attachment_id
+
+                    # if bdm connection_info is None, then it implies
+                    # it has already been disconnected and do not need
+                    # to repeat again
+                    if bdm.connection_info:
+                        if bdm.attachment_id:
+                            attachment_id = self.volume_api.attachment_create(
+                                context, bdm['volume_id'], instance.uuid)['id']
+                        self._detach_volume(context, bdm, instance,
+                                            destroy_bdm=False)
+                        if attachment_id:
+                            bdm.attachment_id = attachment_id
+                        bdm.connection_info = None
                         bdm.save()
 
         files = self._decode_files(injected_files)

@@ -2760,8 +2760,9 @@ class ComputeTestCase(BaseTestCase,
         self.assertTrue(called['rebuild'])
         self.compute.terminate_instance(self.context, instance, [])
 
+    @mock.patch('nova.objects.block_device.BlockDeviceMapping.save')
     @mock.patch('nova.compute.manager.ComputeManager._detach_volume')
-    def test_rebuild_driver_with_volumes(self, mock_detach):
+    def test_rebuild_driver_with_volumes(self, mock_detach, mock_save):
         bdms = block_device_obj.block_device_make_list(self.context,
                 [fake_block_device.FakeDbBlockDeviceDict({
                 'id': 3,
@@ -2809,6 +2810,7 @@ class ComputeTestCase(BaseTestCase,
             bdms=bdms, recreate=False, preserve_ephemeral=False,
             migration=None, scheduled_node=None, limits={},
             on_shared_storage=False, request_spec=None, accel_uuids=[])
+        mock_save.assert_called()
         self.assertTrue(called['rebuild'])
         self.compute.terminate_instance(self.context, instance, [])
 
